@@ -1,71 +1,70 @@
 class Youtuber
-	def initialize
-		@client = YouTubeIt::Client.new(:dev_key => "AI39si4b_4STuP4zQ5J8u4o4b1G5-tG2QyzP-fYCLj4Q7vu4oA4UIJBSDV3iTvxb7Rw8p3gD7WfWs2YTJ7TKpJ5BhUI8AsTsDA")
-	end
+  attr_reader :videos
 
-	def search(query)
-		@query = @client.videos_by(:query => query)
-	end
+  def initialize
+    @client = YouTubeIt::Client.new(:dev_key => "AI39si4b_4STuP4zQ5J8u4o4b1G5-tG2QyzP-fYCLj4Q7vu4oA4UIJBSDV3iTvxb7Rw8p3gD7WfWs2YTJ7TKpJ5BhUI8AsTsDA")
+  end
 
-	def videos
-		@query.videos.map.with_index do |video, i|
-			Video.new(download_image(video.thumbnails.first.url, i), video.title, video.player_url)
-		end
-	end
+  def search(query)
+    @query = @client.videos_by(:query => query)
+    @videos = @query.videos.map do |video|
+      yt_vid = OpenStruct.new
 
-	def download_image(url,i)
-		thumbs = File.dirname(__FILE__) + "/thumbs/"
-		FileUtils.mkdir_p thumbs unless File.directory? thumbs
-		outname = thumbs + url.split('/')[-1].split('.').insert(-2, i.to_s).join('.')
-		download(url, outname)
-		outname
-	end
+      yt_vid.title = video.title
+      yt_vid.player_url = video.player_url
+      yt_vid.duration = video.duration
+      yt_vid.thumb_url = video.thumbnails.first.url
 
-	def download(vidlink, vidfile)
-		writeOut = open(vidfile, "wb")
-		writeOut.write(open(vidlink).read)
-		writeOut.close
-	end
+      yt_vid
+    end
+  end
 
-	def convert(video)
-		`"bin/exes/ffmpeg.exe" -i #{video} -vn -acodec pcm_s16le -ar 16000 -ac 1 -f wav #{video}.WAV`
-	end
+  # Some ideas for the method to check available formats of a video.
+  # Some ideas from here will also be needed to determine the download
+  # link.
+  # Right now it does a lot of things and nothing interesting/needed.
+  def check_formats(yt_vid)
+    formats_query = `quvi -F #{selected.player_url}`
 
-	# Thanks to Yusuf Abdulla for creating this code.
-	# Original can be found at: http://www.yusufshunan.com/2011/09/youtube-video-download-scrip-ruby/
-	def download_video(path)
-		uri = URI.parse(path)
-			open(uri) do |file|
-			openedsource = file.read
+    formats = formats_query.slice(0..(formats_query.index(' :'))).split("|")
 
-			# search for the title
-			vids = File.dirname(__FILE__) + "/vids/"
-			FileUtils.mkdir_p vids unless File.directory? vids
-			rgtitlesearch = Regexp.new(/\<meta name="title" content=.*/)
-			vidtitle = rgtitlesearch.match(openedsource)
-			idtitle = vidtitle[0].gsub("<meta name=\"title\" content=\"",vids).gsub("\">","").gsub(/ /,'')+".flv"
-		
-			# search for the download link
-		  rglinksearch = Regexp.new(/,url=.*\\u0026quality=/)
-		  vidlink = rglinksearch.match(openedsource)
+    yt_vid.formats = get_filesize(yt_vid.player_url, formats)
+    doc = Nokogiri.parse(`quvi --xml #{video.player_url}`)
 
-			vidlink[0].split(",url=").each do |foundlinks|
-				vidlink = foundlinks.gsub(",url=","").gsub("\\u0026quality=","").gsub("%3A",":").gsub("%2F","/").gsub("%3F","?").gsub("%3D","=").gsub("%252C",",").gsub("%253A",":").gsub("%26","&")
-			end
+    yt_vid.title = doc.at('page_title').text
+    yt_vid.download_url = CGI::unescape(doc.at('url').text)
+    yt_vid.player_url = video.player_url
+    yt_vid.duration = doc.at('duration').text
+    yt_vid.thumb_url = CGI::unescape(doc.at('thumbnail_url').text)
+  end
 
-			download(vidlink,vidtitle)
-		end
-	end
+  # Checks the filesize of a video in a particular format.
+  # Right now is not used anywhere. But will, surely.
+  def get_filesize(url, format)
+    to_parse = `quvi --xml --format #{format} #{url}`
+    parsed = Nokogiri.parse(to_parse)
+    parsed.at('length_bytes').text
+  end
 
-end
+  def download_thumbs
+    thumbs = File.dirname(__FILE__) + "/thumbs/"
+    FileUtils.mkdir_p thumbs unless File.directory? thumbs
+    @videos.each_with_index do |video, i|
+      outname = thumbs + video.thumb_url.split('/')[-1].split('.').insert(-2, i.to_s).join('.')
+      video.thumb_location = outname
 
-class Video
-	attr_reader :img, :title, :url
+      download(video.thumb_url, outname)
+    end
+  end
 
-	def initialize(img, title, url)
-		@img = img
-		@title = title
-		@url = url
-	end
+  def download(vidlink, vidfile)
+    writeOut = open(vidfile, "wb")
+    writeOut.write(open(vidlink).read)
+    writeOut.close
+  end
+
+  def download_videos(videos)
+    # stub
+  end
 
 end
